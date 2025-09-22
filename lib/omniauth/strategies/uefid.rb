@@ -19,6 +19,8 @@ module OmniAuth
                 :site => 'https://sso.uef.edu.vn',
                 :realm => 'university'
             }
+            option :authorize_params,
+            scope: 'openid email profile'
 
             def setup_phase
                 super
@@ -46,8 +48,7 @@ module OmniAuth
 
                         options.client_options.merge!({
                             authorize_url: @authorize_url,
-                            token_url: @token_url
-                                                      })
+                            token_url: @token_url})
                         log :debug, "Going to get certificates. URL: #{@certs_endpoint}"
                         certs = Faraday.get @certs_endpoint
                         if (certs.status == 200)
@@ -86,6 +87,9 @@ module OmniAuth
             def build_access_token
                 verifier = request.params["code"]
 
+                # debug token params
+                log :debug, "Token params: #{token_params.to_hash}"
+
                 client.auth_code.get_token(verifier,
                     {:redirect_uri => callback_url.gsub(/\?.+\Z/, "")}
                     .merge(token_params.to_hash(:symbolize_keys => true)),
@@ -96,6 +100,10 @@ module OmniAuth
                 options.authorize_options.each do |key|
                   options[key] = request.params[key.to_s] if options[key].nil?
                 end
+
+                # debug options
+                log :debug, "Authorize options: #{options.authorize_options.map { |k| [k, options[k]] }.to_h}"
+
                 super
             end
 
@@ -121,7 +129,8 @@ module OmniAuth
 
             def raw_info
                 id_token_string = access_token['id_token']
-                raise "No id_token in response" if id_token_string.blank?
+                raise ConfigurationError, "No id_token returned from UEF." if id_token_string.nil? || id_token_string.empty?
+                raise ConfigurationError, "No certificates available to verify id_token." if @certs.nil? || @certs.empty?
                 jwks = JSON::JWK::Set.new(@certs)
                 id_token = JSON::JWT.decode id_token_string, jwks
             end
